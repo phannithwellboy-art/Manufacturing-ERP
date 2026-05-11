@@ -1,0 +1,73 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: factory_erp_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${DB_NAME:-factory_erp}
+      POSTGRES_USER:     ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── ERP API ────────────────────────────────────────────────────────────
+  app:
+    build: .
+    container_name: factory_erp_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV:               ${NODE_ENV:-development}
+      PORT:                   4000
+      DB_HOST:                db
+      DB_PORT:                5432
+      DB_NAME:                ${DB_NAME:-factory_erp}
+      DB_USER:                ${DB_USER:-postgres}
+      DB_PASSWORD:            ${DB_PASSWORD:-postgres}
+      GOOGLE_CLIENT_ID:       ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET:   ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_CALLBACK_URL:    ${GOOGLE_CALLBACK_URL:-http://localhost:4000/auth/google/callback}
+      JWT_SECRET:             ${JWT_SECRET}
+      JWT_EXPIRES_IN:         ${JWT_EXPIRES_IN:-8h}
+      SESSION_SECRET:         ${SESSION_SECRET}
+      FRONTEND_URL:           ${FRONTEND_URL:-http://localhost:3000}
+      ALLOWED_EMAIL_DOMAINS:  ${ALLOWED_EMAIL_DOMAINS:-}
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── nginx reverse proxy (optional, comment out for dev) ────────────────
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: factory_erp_nginx
+  #   restart: unless-stopped
+  #   depends_on: [app]
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./nginx/ssl:/etc/nginx/ssl:ro
+
+volumes:
+  pgdata:
+    driver: local
